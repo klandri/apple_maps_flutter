@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+* Added `Annotation.clusteringIdentifier`. Annotations sharing the same
+  identifier are aggregated by MapKit into a single `MKClusterAnnotation`
+  natively (iOS 11+), avoiding the platform-channel cost of clustering
+  in Dart. Tapping a cluster animates the camera to the member bounding
+  box. Leave the field null to opt out per-annotation.
+
 ## 1.4.0
 
 * Flutter 3.27.1 compatibility, replace `ui.hash*` with `Object.hash*
