@@ -85,8 +85,8 @@ void main() {
     expect(addedAnnotation, equals(m2));
     expect(platformAppleMap.annotationIdsToRemove!.isEmpty, true);
 
-    expect(platformAppleMap.annotationsToChange!.length, 1);
-    expect(platformAppleMap.annotationsToChange!.first, equals(m1));
+    // m1 didn't change, so it must not appear in the change set.
+    expect(platformAppleMap.annotationsToChange!.isEmpty, true);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -267,29 +267,44 @@ void main() {
     expect(updated.clusteringIdentifier, equals("new"));
   });
 
-  testWidgets(
-    "Partial Update",
-    (WidgetTester tester) async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      final Annotation m1 =
-          Annotation(annotationId: AnnotationId("annotation_1"));
-      Annotation m2 = Annotation(annotationId: AnnotationId("annotation_2"));
-      final Set<Annotation> prev = _toSet(m1: m1, m2: m2);
-      m2 = Annotation(
-          annotationId: AnnotationId("annotation_2"), draggable: true);
-      final Set<Annotation> cur = _toSet(m1: m1, m2: m2);
+  testWidgets("Partial Update", (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final Annotation m1 = Annotation(annotationId: AnnotationId("annotation_1"));
+    Annotation m2 = Annotation(annotationId: AnnotationId("annotation_2"));
+    final Set<Annotation> prev = _toSet(m1: m1, m2: m2);
+    m2 = Annotation(
+        annotationId: AnnotationId("annotation_2"), draggable: true);
+    final Set<Annotation> cur = _toSet(m1: m1, m2: m2);
 
-      await tester.pumpWidget(_mapWithAnnotations(prev));
-      await tester.pumpWidget(_mapWithAnnotations(cur));
+    await tester.pumpWidget(_mapWithAnnotations(prev));
+    await tester.pumpWidget(_mapWithAnnotations(cur));
 
-      final FakePlatformAppleMap platformAppleMap =
-          fakePlatformViewsController.lastCreatedView!;
+    final FakePlatformAppleMap platformAppleMap =
+        fakePlatformViewsController.lastCreatedView!;
 
-      expect(platformAppleMap.annotationsToChange, _toSet(m2: m2));
-      expect(platformAppleMap.annotationIdsToRemove!.isEmpty, true);
-      expect(platformAppleMap.annotationsToAdd!.isEmpty, true);
-      debugDefaultTargetPlatformOverride = null;
-    },
-    skip: true,
-  );
+    expect(platformAppleMap.annotationsToChange, _toSet(m2: m2));
+    expect(platformAppleMap.annotationIdsToRemove!.isEmpty, true);
+    expect(platformAppleMap.annotationsToAdd!.isEmpty, true);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets("Unchanged annotation is not in annotationsToChange",
+      (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final Annotation m1 = Annotation(annotationId: AnnotationId("annotation_1"));
+    final Annotation m2 = Annotation(annotationId: AnnotationId("annotation_2"));
+
+    await tester.pumpWidget(_mapWithAnnotations(_toSet(m1: m1, m2: m2)));
+    // Same annotation set, different instances but identical content.
+    final Annotation m1Same = Annotation(annotationId: AnnotationId("annotation_1"));
+    final Annotation m2Same = Annotation(annotationId: AnnotationId("annotation_2"));
+    await tester.pumpWidget(_mapWithAnnotations(_toSet(m1: m1Same, m2: m2Same)));
+
+    final FakePlatformAppleMap platformAppleMap =
+        fakePlatformViewsController.lastCreatedView!;
+    expect(platformAppleMap.annotationsToAdd!.isEmpty, true);
+    expect(platformAppleMap.annotationIdsToRemove!.isEmpty, true);
+    expect(platformAppleMap.annotationsToChange!.isEmpty, true);
+    debugDefaultTargetPlatformOverride = null;
+  });
 }

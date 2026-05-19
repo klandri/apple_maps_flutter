@@ -134,32 +134,42 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     func annotationsToChange(annotations: NSArray) {
-        let oldAnnotations: [MKAnnotation] = self.mapView.annotations
         for annotation in annotations {
             let annotationData: Dictionary<String, Any> = annotation as! Dictionary<String, Any>
-            if let annotationToChange = oldAnnotations.filter({($0 as? FlutterAnnotation)?.id == annotationData["annotationId"] as? String})[0] as? FlutterAnnotation {
-                let newAnnotation = FlutterAnnotation.init(fromDictionary: annotationData, registrar: registrar)
-                if annotationToChange != newAnnotation {
-                    if !annotationToChange.wasDragged {
-                        updateAnnotation(annotation: newAnnotation)
-                    } else {
-                        annotationToChange.wasDragged = false
-                    }
+            guard let id = annotationData["annotationId"] as? String,
+                  let annotationToChange = self.annotationsById[id] else {
+                continue
+            }
+            let newAnnotation = FlutterAnnotation.init(fromDictionary: annotationData, registrar: registrar)
+            if annotationToChange != newAnnotation {
+                if !annotationToChange.wasDragged {
+                    updateAnnotation(annotation: newAnnotation)
+                } else {
+                    annotationToChange.wasDragged = false
                 }
             }
         }
     }
 
     func annotationsIdsToRemove(annotationIds: NSArray) {
+        var toRemove: [FlutterAnnotation] = []
+        toRemove.reserveCapacity(annotationIds.count)
         for annotationId in annotationIds {
-            if let _annotationId: String = annotationId as? String {
-                removeAnnotation(id: _annotationId)
+            guard let id = annotationId as? String,
+                  let annotation = self.annotationsById.removeValue(forKey: id) else {
+                continue
             }
+            toRemove.append(annotation)
+        }
+        if !toRemove.isEmpty {
+            self.mapView.removeAnnotations(toRemove)
         }
     }
 
     func removeAllAnnotations() {
         self.mapView.removeAnnotations(self.mapView.annotations)
+        self.annotationsById.removeAll()
+        self.maxAnnotationZIndex = -1
     }
 
     func onAnnotationClick(annotation: MKAnnotation) {
@@ -183,12 +193,13 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     func isAnnotationSelected(with id: String) -> Bool {
-        return self.mapView.selectedAnnotations.contains(where: { annotation in return self.getAnnotation(with: id) == (annotation as? FlutterAnnotation)})
+        guard let annotation = self.annotationsById[id] else { return false }
+        return self.mapView.selectedAnnotations.contains(where: { ($0 as? FlutterAnnotation) === annotation })
     }
 
 
     private func removeAnnotation(id: String) {
-        if let flutterAnnotation: FlutterAnnotation = self.getAnnotation(with: id) {
+        if let flutterAnnotation = self.annotationsById.removeValue(forKey: id) {
             self.mapView.removeAnnotation(flutterAnnotation)
         }
     }
@@ -224,11 +235,11 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     private func getAnnotation(with id: String) -> FlutterAnnotation? {
-        return self.mapView.annotations.filter { annotation in return (annotation as? FlutterAnnotation)?.id == id }.first as? FlutterAnnotation
+        return self.annotationsById[id]
     }
 
     private func annotationExists(with id: String) -> Bool {
-        return self.getAnnotation(with: id) != nil
+        return self.annotationsById[id] != nil
     }
 
     private func addAnnotation(annotationData: Dictionary<String, Any>) {
@@ -241,12 +252,18 @@ extension AppleMapController: AnnotationDelegate {
      - Parameter annotation: the FlutterAnnotation that should be added
      */
     private func addAnnotation(annotation: FlutterAnnotation) {
-        if self.annotationExists(with: annotation.id) {
-            self.removeAnnotation(id: annotation.id)
+        if let id = annotation.id, self.annotationsById[id] != nil {
+            self.removeAnnotation(id: id)
         }
         if annotation.zIndex == -1 {
             annotation.zIndex = self.getNextAnnotationZIndex()
             channel.invokeMethod("annotation#onZIndexChanged", arguments: ["annotationId": annotation.id!, "zIndex": annotation.zIndex])
+        }
+        if annotation.zIndex > self.maxAnnotationZIndex {
+            self.maxAnnotationZIndex = annotation.zIndex
+        }
+        if let id = annotation.id {
+            self.annotationsById[id] = annotation
         }
         self.mapView.addAnnotation(annotation)
     }
@@ -272,15 +289,14 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     private func getNextAnnotationZIndex() -> Double {
-        let mapViewAnnotations = self.mapView.getMapViewAnnotations()
-        if mapViewAnnotations.isEmpty {
-            return 0;
+        if self.annotationsById.isEmpty {
+            return 0
         }
-        return (mapViewAnnotations.last??.zIndex ?? 0) + 1
+        return self.maxAnnotationZIndex + 1
     }
 
     private func isAnnotationInFront(zIndex: Double) -> Bool {
-        return (self.mapView.getMapViewAnnotations().last??.zIndex ?? 0) == zIndex
+        return self.maxAnnotationZIndex == zIndex
     }
 
     private func getPinAnnotationView(annotation: FlutterAnnotation, id: String) -> MKPinAnnotationView {

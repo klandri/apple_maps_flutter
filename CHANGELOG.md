@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0
+
+* Performance: every `mapView.annotations.filter { ... }` lookup in
+  `AnnotationController` is now O(1) against a maintained `[id: FlutterAnnotation]`
+  index on `AppleMapController`. `annotationsToChange` and
+  `annotationsIdsToRemove` drop from O(N²) to O(N); `annotationsIdsToRemove`
+  now uses a single batched `mapView.removeAnnotations(_:)` call.
+  `getNextAnnotationZIndex` / `isAnnotationInFront` use a tracked max
+  zIndex instead of a sort. Large annotation sets (5k+) no longer hang on
+  filter/update operations.
+* `_AnnotationUpdates.from` now skips annotations in `annotationsToChange`
+  whose content is equal to the previous version. The previous
+  implementation included every annotation whose id was in both sets,
+  serializing thousands of unchanged annotations across the platform
+  channel on every diff.
+
 ## 1.5.0
 
 * Added `Annotation.clusteringIdentifier`. Annotations sharing the same
