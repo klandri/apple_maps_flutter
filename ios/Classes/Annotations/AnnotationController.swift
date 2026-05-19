@@ -11,6 +11,12 @@ import MapKit
 extension AppleMapController: AnnotationDelegate {
 
     public func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView)  {
+        if #available(iOS 11.0, *),
+           let cluster = view.annotation as? MKClusterAnnotation {
+            mapView.deselectAnnotation(cluster, animated: false)
+            self.zoomInto(cluster: cluster, on: mapView)
+            return
+        }
         if let annotation: FlutterAnnotation = view.annotation as? FlutterAnnotation  {
             self.currentlySelectedAnnotation = annotation.id
             if !annotation.selectedProgrammatically {
@@ -34,10 +40,47 @@ extension AppleMapController: AnnotationDelegate {
     public func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
         if annotation is MKUserLocation {
             return nil
+        } else if #available(iOS 11.0, *), let cluster = annotation as? MKClusterAnnotation {
+            return self.getClusterAnnotationView(for: cluster)
         } else if let flutterAnnotation = annotation as? FlutterAnnotation {
             return self.getAnnotationView(annotation: flutterAnnotation)
         }
         return nil
+    }
+
+    @available(iOS 11.0, *)
+    private func getClusterAnnotationView(for cluster: MKClusterAnnotation) -> MKAnnotationView {
+        let identifier = "FlutterClusterAnnotationView"
+        self.mapView.register(FlutterClusterAnnotationView.self, forAnnotationViewWithReuseIdentifier: identifier)
+        let view = self.mapView.dequeueReusableAnnotationView(withIdentifier: identifier, for: cluster)
+        view.annotation = cluster
+        return view
+    }
+
+    @available(iOS 11.0, *)
+    private func zoomInto(cluster: MKClusterAnnotation, on mapView: MKMapView) {
+        let members = cluster.memberAnnotations
+        guard !members.isEmpty else { return }
+        var minLat = members[0].coordinate.latitude
+        var maxLat = minLat
+        var minLon = members[0].coordinate.longitude
+        var maxLon = minLon
+        for member in members {
+            let c = member.coordinate
+            if c.latitude < minLat { minLat = c.latitude }
+            if c.latitude > maxLat { maxLat = c.latitude }
+            if c.longitude < minLon { minLon = c.longitude }
+            if c.longitude > maxLon { maxLon = c.longitude }
+        }
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLon + maxLon) / 2
+        )
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * 1.6, 0.01),
+            longitudeDelta: max((maxLon - minLon) * 1.6, 0.01)
+        )
+        mapView.setRegion(MKCoordinateRegion(center: center, span: span), animated: true)
     }
 
     func getAnnotationView(annotation: FlutterAnnotation) -> MKAnnotationView {
@@ -75,6 +118,10 @@ extension AppleMapController: AnnotationDelegate {
         annotationView!.canShowCallout = true
         annotationView!.alpha = CGFloat(annotation.alpha ?? 1.00)
         annotationView!.isDraggable = annotation.isDraggable ?? false
+
+        if #available(iOS 11.0, *) {
+            annotationView!.clusteringIdentifier = annotation.clusteringIdentifier
+        }
 
         return annotationView!
     }

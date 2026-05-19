@@ -204,6 +204,69 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets("clusteringIdentifier round-trips through update",
+      (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final Annotation m1 = Annotation(
+      annotationId: AnnotationId("annotation_1"),
+      clusteringIdentifier: "cluster_group",
+    );
+    await tester.pumpWidget(_mapWithAnnotations(_toSet(m1: m1)));
+
+    final FakePlatformAppleMap platformAppleMap =
+        fakePlatformViewsController.lastCreatedView!;
+    expect(platformAppleMap.annotationsToAdd!.length, 1);
+    final Annotation added = platformAppleMap.annotationsToAdd!.first;
+    expect(added.clusteringIdentifier, equals("cluster_group"));
+    expect(added, equals(m1));
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets("clusteringIdentifier change is detected as an update",
+      (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final Annotation m1 = Annotation(
+      annotationId: AnnotationId("annotation_1"),
+      clusteringIdentifier: "group_a",
+    );
+    final Annotation m2 = Annotation(
+      annotationId: AnnotationId("annotation_1"),
+      clusteringIdentifier: "group_b",
+    );
+
+    await tester.pumpWidget(_mapWithAnnotations(_toSet(m1: m1)));
+    await tester.pumpWidget(_mapWithAnnotations(_toSet(m1: m2)));
+
+    final FakePlatformAppleMap platformAppleMap =
+        fakePlatformViewsController.lastCreatedView!;
+    expect(platformAppleMap.annotationsToChange!.length, 1);
+    expect(
+      platformAppleMap.annotationsToChange!.first.clusteringIdentifier,
+      equals("group_b"),
+    );
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  test("copyWith preserves clusteringIdentifier", () {
+    final Annotation original = Annotation(
+      annotationId: AnnotationId("annotation_1"),
+      clusteringIdentifier: "preserve_me",
+    );
+    final Annotation updated = original.copyWith(alphaParam: 0.5);
+    expect(updated.clusteringIdentifier, equals("preserve_me"));
+    expect(updated.alpha, equals(0.5));
+  });
+
+  test("copyWith overrides clusteringIdentifier when supplied", () {
+    final Annotation original = Annotation(
+      annotationId: AnnotationId("annotation_1"),
+      clusteringIdentifier: "old",
+    );
+    final Annotation updated =
+        original.copyWith(clusteringIdentifierParam: "new");
+    expect(updated.clusteringIdentifier, equals("new"));
+  });
+
   testWidgets(
     "Partial Update",
     (WidgetTester tester) async {
