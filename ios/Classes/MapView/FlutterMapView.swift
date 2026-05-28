@@ -20,6 +20,8 @@ class FlutterMapView: MKMapView, UIGestureRecognizerDelegate {
     var oldBounds: CGRect?
     var options: Dictionary<String, Any>?
     var isMyLocationButtonShowing: Bool? = false
+    private var currentMapTypeIndex: Int = 0
+    private var prefersGlobePresentation: Bool = false
     
     fileprivate let locationManager: CLLocationManager = CLLocationManager()
     
@@ -27,6 +29,9 @@ class FlutterMapView: MKMapView, UIGestureRecognizerDelegate {
         MKMapType.standard,
         MKMapType.satellite,
         MKMapType.hybrid,
+        MKMapType.satelliteFlyover,
+        MKMapType.hybridFlyover,
+        MKMapType.mutedStandard,
     ]
     
     let userTrackingModes: Array<MKUserTrackingMode> = [
@@ -141,8 +146,15 @@ class FlutterMapView: MKMapView, UIGestureRecognizerDelegate {
             self.layoutMargins = margins
         }
         
+        if let prefersGlobe: Bool = options["prefersGlobe"] as? Bool {
+            self.prefersGlobePresentation = prefersGlobe
+        }
+        
         if let mapType: Int = options["mapType"] as? Int {
-            self.mapType = self.mapTypes[mapType]
+            self.currentMapTypeIndex = mapType
+            self.applyMapType(mapType, prefersGlobe: self.prefersGlobePresentation)
+        } else if options["prefersGlobe"] != nil {
+            self.applyMapType(self.currentMapTypeIndex, prefersGlobe: self.prefersGlobePresentation)
         }
         
         if let trafficEnabled: Bool = options["trafficEnabled"] as? Bool {
@@ -201,6 +213,24 @@ class FlutterMapView: MKMapView, UIGestureRecognizerDelegate {
             }
         }
 
+    }
+
+    private func applyMapType(_ mapType: Int, prefersGlobe: Bool) {
+        guard mapTypes.indices.contains(mapType) else { return }
+        if #available(iOS 16.0, *), prefersGlobe {
+            let configuration: MKMapConfiguration
+            switch mapType {
+            case 1:
+                configuration = MKImageryMapConfiguration(elevationStyle: .realistic)
+            case 2:
+                configuration = MKHybridMapConfiguration(elevationStyle: .realistic)
+            default:
+                configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
+            }
+            self.preferredConfiguration = configuration
+        } else {
+            self.mapType = self.mapTypes[mapType]
+        }
     }
     
     func setUserLocation() {
@@ -299,6 +329,16 @@ class FlutterMapView: MKMapView, UIGestureRecognizerDelegate {
         let longTapGesture = UILongPressGestureRecognizer(target: self, action: #selector(longTap))
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTap))
         tapGesture.require(toFail: doubleTapGesture)    // only recognize taps that are not involved in zooming
+        // These recognizers only *observe* the map to report camera moves /
+        // taps / long-presses back to Flutter — they must never consume or
+        // cancel touches headed for MKMapView's own pan/zoom handling or its
+        // annotation views. Leaving cancelsTouchesInView at its default (true)
+        // lets a firing observer swallow the touch sequence, which can leave
+        // the map unresponsive to further gestures.
+        for recognizer in [panGesture, pinchGesture, rotateGesture, tiltGesture,
+                           longTapGesture, doubleTapGesture, tapGesture] as [UIGestureRecognizer] {
+            recognizer.cancelsTouchesInView = false
+        }
         self.addGestureRecognizer(panGesture)
         self.addGestureRecognizer(pinchGesture)
         self.addGestureRecognizer(rotateGesture)

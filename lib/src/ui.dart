@@ -14,6 +14,15 @@ enum MapType {
 
   /// Hybrid tiles (satellite images with some labels/overlays)
   hybrid,
+
+  /// Satellite flyover tiles (aerial photos)
+  satelliteFlyover,
+
+  /// Hybrid flyover tiles (satellite images with some labels/overlays)
+  hybridFlyover,
+
+  /// Muted standard tiles (traffic and labels, subtle terrain information)
+  mutedStandard,
 }
 
 enum TrackingMode {
@@ -25,6 +34,18 @@ enum TrackingMode {
 
   // the map follows the user's location and heading
   followWithHeading,
+}
+
+/// Overrides the iOS user interface style used by the native map view.
+enum AppleMapUserInterfaceStyle {
+  /// Let the native map view follow the system appearance.
+  unspecified,
+
+  /// Force the native map view into light appearance.
+  light,
+
+  /// Force the native map view into dark appearance.
+  dark,
 }
 
 /// Bounds for the map camera target.

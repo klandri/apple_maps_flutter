@@ -76,18 +76,66 @@ extension AppleMapController: AnnotationDelegate {
             latitude: (minLat + maxLat) / 2,
             longitude: (minLon + maxLon) / 2
         )
+        // For very tight clusters (members within ~10m of one another) a
+        // 0.01° minimum span would zoom out far enough that they re-cluster
+        // immediately. Use a small minimum so MapKit zooms in close enough
+        // for the pins to separate visually.
         let span = MKCoordinateSpan(
-            latitudeDelta: max((maxLat - minLat) * 1.6, 0.01),
-            longitudeDelta: max((maxLon - minLon) * 1.6, 0.01)
+            latitudeDelta: max((maxLat - minLat) * 1.6, 0.0005),
+            longitudeDelta: max((maxLon - minLon) * 1.6, 0.0005)
         )
         mapView.setRegion(MKCoordinateRegion(center: center, span: span), animated: true)
     }
 
+    /// Reuse identifier keyed by the view *kind* (pin / marker / custom) plus
+    /// its tint — deliberately NOT the annotation id.
+    ///
+    /// Keying on `annotation.id` (as this used to) gave every annotation its
+    /// own reuse pool of one, so no view was ever recycled and
+    /// `register(_:forAnnotationViewWithReuseIdentifier:)` ran once per unique
+    /// id. With thousands of annotations clustering/declustering during
+    /// zoom/pan that grew the registry and retained-view set without bound,
+    /// degrading MKMapView's annotation/gesture handling until the platform
+    /// view was recreated. Pin/marker tint is folded into the key so each pool
+    /// is tint-homogeneous and the tint never needs re-applying on reuse;
+    /// custom-image views share one pool and have their image refreshed on
+    /// every call (see `applyAppearance`).
+    private func reuseIdentifier(for annotation: FlutterAnnotation) -> String {
+        switch annotation.icon.iconType {
+        case .MARKER:
+            if let hue = annotation.icon.hueColor { return "fmap.annotation.marker.\(hue)" }
+            return "fmap.annotation.marker"
+        case .CUSTOM_FROM_ASSET, .CUSTOM_FROM_BYTES:
+            return "fmap.annotation.custom"
+        case .PIN:
+            if let hue = annotation.icon.hueColor { return "fmap.annotation.pin.\(hue)" }
+            return "fmap.annotation.pin"
+        }
+    }
+
+    /// Per-annotation visuals that differ between annotations sharing a reuse
+    /// pool, refreshed on every `getAnnotationView` call so a recycled view
+    /// never keeps the previous annotation's look. Tint is intentionally absent
+    /// here: it's baked into the reuse identifier, so each pool is already
+    /// tint-correct.
+    private func applyAppearance(to view: MKAnnotationView, annotation: FlutterAnnotation) {
+        switch annotation.icon.iconType {
+        case .CUSTOM_FROM_ASSET, .CUSTOM_FROM_BYTES:
+            view.image = annotation.icon.image
+            (view as? FlutterAnnotationView)?.stickyZPosition = annotation.zIndex
+        case .MARKER:
+            if #available(iOS 11.0, *) {
+                (view as? FlutterMarkerAnnotationView)?.stickyZPosition = annotation.zIndex
+            }
+        case .PIN:
+            view.layer.zPosition = annotation.zIndex
+        }
+    }
+
     func getAnnotationView(annotation: FlutterAnnotation) -> MKAnnotationView {
-        let identifier: String = annotation.id
+        let identifier: String = self.reuseIdentifier(for: annotation)
         var annotationView = self.mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
-        let oldflutterAnnoation = annotationView?.annotation as? FlutterAnnotation
-        if annotationView == nil || oldflutterAnnoation?.icon.iconType != annotation.icon.iconType {
+        if annotationView == nil {
             if #available(iOS 11.0, *), annotation.icon.iconType == IconType.MARKER {
                 annotationView = getMarkerAnnotationView(annotation: annotation, id: identifier)
             } else if annotation.icon.iconType == .CUSTOM_FROM_ASSET || annotation.icon.iconType == .CUSTOM_FROM_BYTES {
@@ -96,34 +144,83 @@ extension AppleMapController: AnnotationDelegate {
                 annotationView = getPinAnnotationView(annotation: annotation, id: identifier)
             }
         }
-        guard annotationView != nil else {
+        guard let annotationView = annotationView else {
             return FlutterAnnotationView()
         }
-        annotationView!.annotation = annotation
+        annotationView.annotation = annotation
+        // Recycled views still carry the previous annotation's image/z-position,
+        // so refresh them on every call rather than only at creation.
+        self.applyAppearance(to: annotationView, annotation: annotation)
         // If annotation is not visible set alpha to 0 and don't let the user interact with it
-        if !annotation.isVisible! {
-            annotationView!.canShowCallout = false
-            annotationView!.alpha = CGFloat(0.0)
-            annotationView!.isDraggable = false
-            return annotationView! as! FlutterAnnotationView
+        if !(annotation.isVisible ?? true) {
+            annotationView.canShowCallout = false
+            annotationView.alpha = CGFloat(0.0)
+            annotationView.isDraggable = false
+            return annotationView
         }
         if annotation.icon.iconType != .MARKER {
-            self.initInfoWindow(annotation: annotation, annotationView: annotationView!)
+            self.initInfoWindow(annotation: annotation, annotationView: annotationView)
             if annotation.icon.iconType != .PIN {
-                let x = (0.5 - annotation.anchor.x) * Double(annotationView!.frame.size.width)
-                let y = (0.5 - annotation.anchor.y) * Double(annotationView!.frame.size.height)
-                annotationView!.centerOffset = CGPoint(x: x, y: y)
+                let x = (0.5 - annotation.anchor.x) * Double(annotationView.frame.size.width)
+                let y = (0.5 - annotation.anchor.y) * Double(annotationView.frame.size.height)
+                annotationView.centerOffset = CGPoint(x: x, y: y)
             }
         }
-        annotationView!.canShowCallout = true
-        annotationView!.alpha = CGFloat(annotation.alpha ?? 1.00)
-        annotationView!.isDraggable = annotation.isDraggable ?? false
+        annotationView.canShowCallout = true
+        annotationView.alpha = CGFloat(annotation.alpha ?? 1.00)
+        annotationView.isDraggable = annotation.isDraggable ?? false
 
         if #available(iOS 11.0, *) {
-            annotationView!.clusteringIdentifier = annotation.clusteringIdentifier
+            annotationView.clusteringIdentifier = annotation.clusteringIdentifier
         }
 
-        return annotationView!
+        applyStackBadge(to: annotationView, count: annotation.stackCount)
+
+        return annotationView
+    }
+
+    /// Adds (or removes) a small numeric badge in the upper-right of the
+    /// annotation view to indicate a stack of N items sharing the same
+    /// coordinate. Idempotent + reuse-safe — the badge is tagged so reused
+    /// views drop the previous one before adding the new one.
+    private func applyStackBadge(to view: MKAnnotationView, count: Int) {
+        let badgeTag = 0x5741434B // arbitrary unique tag for the badge
+        if let existing = view.viewWithTag(badgeTag) {
+            existing.removeFromSuperview()
+        }
+        guard count > 1 else { return }
+
+        let badge = UIView()
+        badge.tag = badgeTag
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.backgroundColor = .systemBlue
+        badge.layer.cornerRadius = 7
+        badge.isUserInteractionEnabled = false
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = count >= 100 ? "99+" : "\(count)"
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 10, weight: .heavy)
+        label.textAlignment = .center
+        badge.addSubview(label)
+
+        view.addSubview(badge)
+
+        NSLayoutConstraint.activate([
+            badge.heightAnchor.constraint(equalToConstant: 14),
+            badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+            // MKPinAnnotationView renders its pin head *above* the view's
+            // topAnchor (the view's bounds line up with the pin's tip /
+            // shoulder). Push the badge above the topAnchor so it overlays
+            // the upper-right of the head rather than the base of the stem.
+            badge.centerYAnchor.constraint(equalTo: view.topAnchor, constant: -8),
+            badge.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 8),
+            label.centerYAnchor.constraint(equalTo: badge.centerYAnchor),
+            label.centerXAnchor.constraint(equalTo: badge.centerXAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: badge.leadingAnchor, constant: 3),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: badge.trailingAnchor, constant: -3),
+        ])
     }
 
     func annotationsToAdd(annotations: NSArray) {
@@ -208,21 +305,27 @@ extension AppleMapController: AnnotationDelegate {
         let x = self.getInfoWindowXOffset(annotationView: annotationView, annotation: annotation)
         let y = self.getInfoWindowYOffset(annotationView: annotationView, annotation: annotation)
         annotationView.calloutOffset = CGPoint(x: x, y: y)
-        if #available(iOS 9.0, *) {
-            let lines = annotation.subtitle?.split(whereSeparator: { $0.isNewline })
-            if lines != nil {
-                let customCallout = UIStackView()
-                customCallout.axis = .vertical
-                customCallout.alignment = .fill
-                customCallout.distribution = .fill
-                for line in lines! {
-                    let subtitle = UILabel()
-                    subtitle.text = String(line)
-                    customCallout.addArrangedSubview(subtitle)
-                }
-                annotationView.detailCalloutAccessoryView = customCallout
-            }
+        guard #available(iOS 9.0, *), let subtitle = annotation.subtitle, !subtitle.isEmpty else {
+            // Clear any accessory left over from a previously recycled view so a
+            // reused annotation doesn't show the prior one's snippet.
+            annotationView.detailCalloutAccessoryView = nil
+            return
         }
+
+        // Constrain the callout subtitle so long single-line snippets (e.g.
+        // unspaced rune strings or transliterations) wrap to a second line
+        // instead of stretching the callout off-screen. Truncates at the
+        // tail after two lines.
+        let label = UILabel()
+        label.text = subtitle
+        label.numberOfLines = 2
+        label.lineBreakMode = .byTruncatingTail
+        label.font = .systemFont(ofSize: UIFont.smallSystemFontSize)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let maxWidth: CGFloat = 160 // ~20 characters at the system small font
+        label.preferredMaxLayoutWidth = maxWidth
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth).isActive = true
+        annotationView.detailCalloutAccessoryView = label
     }
 
     @objc func onCalloutTapped(infoWindowTap: InfoWindowTapGestureRecognizer) {

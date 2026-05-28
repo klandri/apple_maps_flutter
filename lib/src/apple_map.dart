@@ -23,6 +23,8 @@ class AppleMap extends StatefulWidget {
     this.compassEnabled = true,
     this.trafficEnabled = false,
     this.mapType = MapType.standard,
+    this.prefersGlobe = false,
+    this.userInterfaceStyle = AppleMapUserInterfaceStyle.unspecified,
     this.minMaxZoomPreference = MinMaxZoomPreference.unbounded,
     this.trackingMode = TrackingMode.none,
     this.rotateGesturesEnabled = true,
@@ -58,6 +60,13 @@ class AppleMap extends StatefulWidget {
 
   /// Type of map tiles to be rendered.
   final MapType mapType;
+
+  /// Prefer MapKit's realistic globe presentation when the platform supports
+  /// it. Older iOS versions fall back to [mapType].
+  final bool prefersGlobe;
+
+  /// Overrides the native iOS map view appearance.
+  final AppleMapUserInterfaceStyle userInterfaceStyle;
 
   /// The mode used to track the user location.
   final TrackingMode trackingMode;
@@ -332,6 +341,8 @@ class _AppleMapOptions {
     this.compassEnabled,
     this.trafficEnabled,
     this.mapType,
+    this.prefersGlobe,
+    this.userInterfaceStyle,
     this.minMaxZoomPreference,
     this.rotateGesturesEnabled,
     this.scrollGesturesEnabled,
@@ -349,6 +360,8 @@ class _AppleMapOptions {
       compassEnabled: map.compassEnabled,
       trafficEnabled: map.trafficEnabled,
       mapType: map.mapType,
+      prefersGlobe: map.prefersGlobe,
+      userInterfaceStyle: map.userInterfaceStyle,
       minMaxZoomPreference: map.minMaxZoomPreference,
       rotateGesturesEnabled: map.rotateGesturesEnabled,
       scrollGesturesEnabled: map.scrollGesturesEnabled,
@@ -367,6 +380,10 @@ class _AppleMapOptions {
   final bool? trafficEnabled;
 
   final MapType? mapType;
+
+  final bool? prefersGlobe;
+
+  final AppleMapUserInterfaceStyle? userInterfaceStyle;
 
   final MinMaxZoomPreference? minMaxZoomPreference;
 
@@ -400,6 +417,8 @@ class _AppleMapOptions {
     addIfNonNull('compassEnabled', compassEnabled);
     addIfNonNull('trafficEnabled', trafficEnabled);
     addIfNonNull('mapType', mapType?.index);
+    addIfNonNull('prefersGlobe', prefersGlobe);
+    addIfNonNull('userInterfaceStyle', userInterfaceStyle?.index);
     addIfNonNull('minMaxZoomPreference', minMaxZoomPreference?._toJson());
     addIfNonNull('rotateGesturesEnabled', rotateGesturesEnabled);
     addIfNonNull('scrollGesturesEnabled', scrollGesturesEnabled);
@@ -416,10 +435,25 @@ class _AppleMapOptions {
 
   Map<String, dynamic> updatesMap(_AppleMapOptions newOptions) {
     final Map<String, dynamic> prevOptionsMap = toMap();
-
-    return newOptions.toMap()
+    final Map<String, dynamic> newOptionsMap = newOptions.toMap();
+    final Map<String, dynamic> updates = Map<String, dynamic>.of(newOptionsMap)
       ..removeWhere(
           (String key, dynamic value) => prevOptionsMap[key] == value);
+
+    // MapKit's configuration style is a pair: the base map type plus whether
+    // the realistic globe presentation is requested. Keep both values in the
+    // same platform update so switching Standard/Satellite/Hybrid does not
+    // accidentally fall back to the old flat mapType path.
+    if (updates.containsKey('mapType') || updates.containsKey('prefersGlobe')) {
+      if (newOptionsMap.containsKey('mapType')) {
+        updates['mapType'] = newOptionsMap['mapType'];
+      }
+      if (newOptionsMap.containsKey('prefersGlobe')) {
+        updates['prefersGlobe'] = newOptionsMap['prefersGlobe'];
+      }
+    }
+
+    return updates;
   }
 
   List<double>? _serializePadding(EdgeInsets? insets) {

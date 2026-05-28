@@ -156,6 +156,7 @@ class Annotation {
     this.zIndex = -1,
     this.onDragEnd,
     this.clusteringIdentifier,
+    this.stackCount = 0,
   }) : assert(0.0 <= alpha && alpha <= 1.0);
 
   /// Uniquely identifies a [Annotation].
@@ -207,6 +208,12 @@ class Annotation {
   /// camera zooms out. Leave null to opt out of native clustering for this
   /// annotation.
   final String? clusteringIdentifier;
+
+  /// When greater than 0, the native annotation view is decorated with a
+  /// small numeric badge in the upper-right corner. Useful for surfacing
+  /// "N items at this location" without replacing the standard pin
+  /// rendering. Values >= 100 render as "99+".
+  final int stackCount;
 
   /// Creates a new [Annotation] object whose values are the same as this instance,
   /// unless overwritten by the specified parameters.
@@ -260,6 +267,7 @@ class Annotation {
     addIfPresent('position', position._toJson());
     addIfPresent('zIndex', zIndex);
     addIfPresent('clusteringIdentifier', clusteringIdentifier);
+    addIfPresent('stackCount', stackCount);
     return json;
   }
 
@@ -277,7 +285,8 @@ class Annotation {
         position == typedOther.position &&
         visible == typedOther.visible &&
         zIndex == typedOther.zIndex &&
-        clusteringIdentifier == typedOther.clusteringIdentifier;
+        clusteringIdentifier == typedOther.clusteringIdentifier &&
+        stackCount == typedOther.stackCount;
   }
 
   @override

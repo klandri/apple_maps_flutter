@@ -97,6 +97,16 @@ class AppleMapController {
     );
   }
 
+  /// Updates the native iOS map view appearance without rebuilding the map.
+  Future<void> updateUserInterfaceStyle(
+      AppleMapUserInterfaceStyle userInterfaceStyle) async {
+    await _updateMapOptions(
+      <String, dynamic>{
+        'userInterfaceStyle': userInterfaceStyle.index,
+      },
+    );
+  }
+
   /// Updates annotation configuration.
   ///
   /// Change listeners are notified once the update has been made on the

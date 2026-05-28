@@ -35,6 +35,7 @@ public class AppleMapController: NSObject, FlutterPlatformView {
         
         // To stop the odd movement of the Apple logo.
         self.contentView = UIScrollView()
+        AppleMapController.applyUserInterfaceStyle(options: options, to: self.contentView)
         self.contentView.addSubview(mapView)
         mapView.autoresizingMask = [.flexibleHeight, .flexibleWidth]
         
@@ -95,7 +96,10 @@ public class AppleMapController: NSObject, FlutterPlatformView {
                     result(nil)
                     break
                 case "map#update":
-                    self.mapView.interpretOptions(options: args["options"] as! Dictionary<String, Any>)
+                    let options = args["options"] as! Dictionary<String, Any>
+                    AppleMapController.applyUserInterfaceStyle(options: options, to: self.contentView)
+                    self.mapView.interpretOptions(options: options)
+                    result(nil)
                     break
                 case "camera#animate":
                     self.animateCamera(args: args)
@@ -155,6 +159,15 @@ public class AppleMapController: NSObject, FlutterPlatformView {
                 }
             }
         })
+    }
+
+    private static func applyUserInterfaceStyle(options: Dictionary<String, Any>, to view: UIView) {
+        guard #available(iOS 13.0, *) else { return }
+        guard let userInterfaceStyle = options["userInterfaceStyle"] as? Int else { return }
+        let resolvedUserInterfaceStyle = UIUserInterfaceStyle(rawValue: userInterfaceStyle) ?? .unspecified
+        if view.overrideUserInterfaceStyle != resolvedUserInterfaceStyle {
+            view.overrideUserInterfaceStyle = resolvedUserInterfaceStyle
+        }
     }
     
     private func annotationUpdate(args: Dictionary<String, Any>) -> Void {
