@@ -302,9 +302,17 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     private func initInfoWindow(annotation: FlutterAnnotation, annotationView: MKAnnotationView) {
-        let x = self.getInfoWindowXOffset(annotationView: annotationView, annotation: annotation)
-        let y = self.getInfoWindowYOffset(annotationView: annotationView, annotation: annotation)
-        annotationView.calloutOffset = CGPoint(x: x, y: y)
+        // MKPinAnnotationView (.PIN) is the leaning teardrop pin: its tip (the
+        // coordinate) sits left of the view's horizontal center, and MapKit
+        // ships a default calloutOffset that compensates so the bubble points
+        // at the tip. Overriding it — even to zero — drops that compensation
+        // and nudges the callout ~8pt right. So only set our own offset for the
+        // symmetric custom-image / marker views, whose point is centered.
+        if annotation.icon.iconType != .PIN {
+            let x = self.getInfoWindowXOffset(annotationView: annotationView, annotation: annotation)
+            let y = self.getInfoWindowYOffset(annotationView: annotationView, annotation: annotation)
+            annotationView.calloutOffset = CGPoint(x: x, y: y)
+        }
         guard #available(iOS 9.0, *), let subtitle = annotation.subtitle, !subtitle.isEmpty else {
             // Clear any accessory left over from a previously recycled view so a
             // reused annotation doesn't show the prior one's snippet.
@@ -446,10 +454,14 @@ extension AppleMapController: AnnotationDelegate {
     }
 
     private func getInfoWindowXOffset(annotationView: MKAnnotationView, annotation: FlutterAnnotation) -> CGFloat {
-        if annotation.icon.iconType == .PIN {
-            return annotationView.frame.origin.x - (annotationView.frame.origin.x * CGFloat(annotation.calloutOffset.x))
-        }
-        return annotationView.frame.origin.x + (annotationView.frame.width * CGFloat(annotation.calloutOffset.x))
+        // MapKit interprets calloutOffset relative to the annotation view
+        // (zero = callout centered above the pin), so it must depend only on
+        // the view's own width and the requested anchor — never on the view's
+        // on-screen origin. The previous formula added frame.origin.x, which
+        // shoved the callout east by the pin's screen X (the further right the
+        // pin sat, the larger the skew). The default anchor.x of 0.5 yields a
+        // zero offset, i.e. centered above the pin.
+        return (CGFloat(annotation.calloutOffset.x) - 0.5) * annotationView.frame.width
     }
 
     private func getInfoWindowYOffset(annotationView: MKAnnotationView, annotation: FlutterAnnotation) -> CGFloat {
