@@ -85,7 +85,20 @@ class FlutterClusterAnnotationView: MKAnnotationView {
     override func prepareForDisplay() {
         super.prepareForDisplay()
         guard let cluster = annotation as? MKClusterAnnotation else { return }
-        let count = cluster.memberAnnotations.count
+        // Show the number of inscriptions, not the number of member pins. A
+        // colocated "stack" pin is a single annotation standing in for
+        // `stackCount` inscriptions sharing one coordinate (see
+        // FlutterAnnotation.stackCount); a plain pin has stackCount == 0 and
+        // represents one inscription. Counting members alone would undercount
+        // any cluster that contains stacks.
+        var count = 0
+        for member in cluster.memberAnnotations {
+            if let flutter = member as? FlutterAnnotation, flutter.stackCount > 0 {
+                count += flutter.stackCount
+            } else {
+                count += 1
+            }
+        }
         label.text = "\(count)"
         let size: CGFloat = count < 10 ? 28 : count < 100 ? 34 : count < 1000 ? 40 : 46
         bounds = CGRect(x: 0, y: 0, width: size, height: size)
